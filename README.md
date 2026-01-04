@@ -1,104 +1,46 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/QQ4ugijv)
-# Sort Playing Cards
+# Playing Card Detector & Rank/Suit Recognizer (OpenCV)
 
-OpenCV 기반으로 트럼프 카드(playing card)의 rank(A, 2-10, J, Q, K)와 suit(♣, ♦, ♥, ♠)를 인식한 뒤, 다음의 정렬 규칙에 따라 정렬 결과를 출력하세요.
-* 정렬 규칙
-  * Rank (A→K) 순서로 우선 정렬 - (오름차순): A < 2 < 3 < … < 10 < J < Q < K
-  * 같은 rank인 경우 다음의 suit 순서(♣→♦→♥→♠)로 정렬 - (오름차순): ♣ < ♦ < ♥ < ♠
-  * 출력시 각 suit는 다음의 알파벳으로 치환하여 출력 **(대문자로 출력)**
-    * ♣ → C
-    * ♦ → D 
-    * ♥ → H
-    * ♠ → S
-  * 출력은 suit 다음에 rank를 붙여서 문자열로 출력
-    * 예시) CA, D3, S10, HK
-  
-# 입출력 예시
-## 입력 예시
-```bash
-python main.py --input path/to/image.jpg
-```
-- input의 인자로 이미지의 파일명(현재 폴더가 아닌 경우 경로 포함)을 명령행 인자로 입력
-- 자동 채점 시 script 상에서 project 폴더 밖에 있는 다른 경로에 있는 이미지를 사용할 예정
+여러 장의 트럼프 카드가 포함된 이미지에서 **카드 영역을 검출**하고, 각 카드의 **Rank(숫자/문자)와 Suit(무늬)를 (조커제외) 인식**하는 프로젝트
 
-## 출력 예시
-```bash
-CA S2 C9 H10 DQ HQ HK SK
-```
-- 인식된 모든 카드들에 대해서 각 카드들은 공백으로 구분하여 한 줄로 출력
-- 각 카드는 suit에 대항하는 알파벳을 먼저 출력하고, 그 뒤에 rank를 공백 없이 붙여서 출력
-- ** 텍스트 출력 외에 cv2.imshow 등으로 이미지를 띄우지 마세요.**
-  - 결과 이미지를 띄우고 waitkey 함수 등으로 대기하는 경우 수행 시간이 초과되어 0점 처리 될 수 있습니다.
-  - main.py의 예시 코드에 있는 imshow를 비롯한 예시 코드는 지우고 작성해주세요.
-- 최초 실행 후 채점 서버에서 3분 이상 소요되는 경우 오답 처리됩니다.
+## What it does
+- 카드 후보 영역 검출(Contour 기반) → 4꼭짓점 사각형만 필터링
+- Perspective Transform으로 카드 이미지를 **200×300**으로 정규화
+- 좌상단 코너에서 **rank/suit 영역 분리** 후 이진화
+- **AbsDiff(픽셀 차이 합)** 기반으로 rank/suit 템플릿과 매칭하여 최종 라벨 결정
 
-# 과제 시작하기
-1. Repository clone 하기 (<your-assignment-repo-url> 부분은 본인의 github repo 주소로 치환)
-```bash
-git clone <your-assignment-repo-url>
-cd <your-assignment-repo>
-```
+## Pipeline (Core)
+1. **Preprocess**: BGR→Gray → Gaussian Blur(7×7)
+2. **Mask**: Otsu Threshold → Morphology Open(3×3)로 노이즈 제거
+3. **Card Detection**: contour 추출 → area 필터(5000~1.5M) → approxPolyDP(eps=0.015×peri)로 4꼭짓점만 유지
+4. **Warping**: 꼭짓점 정렬 → perspective transform → (200×300)으로 정규화
+5. **Corner + Binary**: 좌상단 코너 crop → 4배 확대 → 동적 threshold(white_level - 30)
+6. **Rank/Suit**: 큰 컨투어 선택 → rank(70×125), suit(70×100)로 resize
+7. **Template Match**: score = sum(absdiff)/255 → score 최소 템플릿을 결과로 선택
 
-2. (권장사항) Virtual environment 생성 (아래의 .venv 는 가상환경의이름이면서 venv가 위치할 경로) 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
+## Key Parameters
+- Blur: 7×7
+- (디버그/보조) Canny: (100, 200), Dilate: 5×5
+- Otsu Threshold + Morph Open(3×3)
+- Contour area: 5000 ~ 1.5M
+- approxPolyDP: 0.015 × perimeter
+- Warp size: 200×300
+- Corner zoom: ×4
+- Corner threshold: `white_level - 30`
 
-3. 필요 패키지 설치
-```bash
-pip install -r requirements.txt
-```
-- 채점을 위한 가상 환경에서 원본 requirements.txt로 필요 패키지들을 설치한 후 채점 수행
-- 과제에서 requirements.txt를 수정해도 된다고 명시된 경우에만 매번 위의 명령어로 패키지들을 설치 후 채점 수행
-- 만약 requirements.txt 수정 불가 과제에서 추가로 필요한 패키지가 있다면 메일로 문의
+## Results 
+- 다수 카드 입력에서 대부분 정상 인식
+- 코너 추출 노이즈로 suit가 다른 무늬로 오인식되는 케이스(예: 클로버→다이아) 발생
+- 템플릿 유사(10 vs Q)로 미스매치 가능
 
-# 사용 패키지
-- NumPy 2.2.6
-- opencv-python 4.12.0.88
-- opencv-contrib-python 4.12.0.88
+## Limitations
+- 템플릿(AbsDiff) 방식은 **스케일/오염/약간의 변형**에도 민감
+- Warp 과정에서 보간으로 글자가 흐려져 인식률 저하 가능
+- 카드가 **겹치거나 부분 가려짐**이 크면 컨투어/코너 추출 실패 → 인식 불가
+- 질감 있는 배경에서는 카드와 비슷한 패턴이 사각형으로 잡힐 수 있음(필터링으로 일부 완화)
 
-# 📦 과제 제출하기
-1. 코드가 오류 없이 실행되는지 확인하세요.
-2. 다양한 입력으로로 테스트해보세요.
-3. 모든 요구사항을 만족하는지 검증하세요.
-4. 변경사항을 Github에 ***commit***하고 ***push***하세요.
-   - ⚠️ push되지 않은 내용은 채점되지 않습니다.
-   - ⚠️ commit log는 사후 검증에 활용될 수 있습니다.
+## Tech
+- Python, OpenCV (threshold/morphology/contour/perspective transform/template matching)
 
-# 주의사항
-- 채점에는 Python 3.13 버전을 사용합니다.
-- main.py에서 *main* 함수를 수정하여 과제를 수행하세요.
-- 과제 조건에 따라 *parse_args* 함수를 수정하여 과제를 수행하세요.
-- 필요에 따라 새로운 함수나 파일을 추가하셔도 됩니다.
-- *sys.exit(main())* 부분은 수정하지 마세요.
-- 과제에서 명시하는 경우를 제외하고는 requirements.txt 파일을 수정하지 마세요.
+<img width="569" height="258" alt="image" src="https://github.com/user-attachments/assets/f0b23a91-a1df-4c09-a180-8d623882517b" />
+<img width="600" height="165" alt="image" src="https://github.com/user-attachments/assets/251ec749-4a5b-4f67-ae15-ff73f85764f2" />
 
-# 채점 기준
-- 채점시 repository를 clone 받아서, requirements.txt를 기준으로 패키지들을 설치합니다.
-- main.py 파일을 명령행 인자(command-line arguments)와 함께 실행합니다.
-- 출력물로 지정된 문자열 혹은 image 외에 다른 출력이 나올 경우 오답 처리 됩니다.
-  - 예시) Hello가 정답인 경우
-    - ❌ 대소문자 불일치: hello 는 오답 처리
-  - 예시) 3이 정답인 경우: 
-    - ❌ 불필요한 추가 문자열: (정답은 3) 는 오답 처리
-  - 예시) 5,2가 정답인 경우: 
-    - ❌ 불필요한 빈 칸: 5, 2 는 오답처리
-
-
-# 📚 참고자료
-- [OpenCV Documentation](https://docs.opencv.org/)
-- [NumPy Documentation](https://numpy.org/doc/)
-- [Python Argparse Tutorial](https://docs.python.org/3/library/argparse.html)
-
-# 자주 발생하는 오류
-1. **ImportError**: 필요한 패키지가 모두 설치되었는지 확인하세요
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **FileNotFoundError**: 입력 파일이 존재하는지, 경로가 올바른지 확인하세요
-
-3. **Permission Error**: 출력 디렉토리에 쓰기 권한이 있는지 확인하세요
-
-4. **Memory Error**: 큰 이미지의 경우, 청크 단위로 처리하거나 이미지 크기를 줄이는 것을 고려하세요
